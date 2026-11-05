@@ -2,10 +2,19 @@ import type { ChildProcess } from "node:child_process";
 import { basename, dirname } from "node:path";
 
 import type { CommandTarget, Context, SettingsValues, ViewRef } from "../vendor/krad-ade-extension/index.js";
-import { createExtension, patch } from "../vendor/krad-ade-extension/index.js";
+import { createExtension, patch, ui } from "../vendor/krad-ade-extension/index.js";
 
-import { Docker, type Container, type ContainerAction } from "./docker.js";
-import { ACTIONS, containersView, containerView, LOGS_KEY } from "./tree.js";
+import { Docker, shellArgs, type Container, type ContainerAction } from "./docker.js";
+import {
+  ACTIONS,
+  containerControls,
+  containersView,
+  containerView,
+  DETAILS_KEY,
+  IMAGE_PREFIX,
+  inspectedDetails,
+  LOGS_KEY,
+} from "./tree.js";
 
 const CONTAINERS_VIEW = "containers";
 const CONTAINER_VIEW = "container";
@@ -51,7 +60,11 @@ function failure(error: unknown): string {
 
 async function containersNode() {
   try {
-    return containersView(await docker.containers(current.showStopped));
+    const [containers, images] = await Promise.all([
+      docker.containers(current.showStopped),
+      docker.images().catch(() => []),
+    ]);
+    return containersView(containers, images);
   } catch (error) {
     return containersView(`Docker is not reachable: ${failure(error)}`);
   }
@@ -84,6 +97,26 @@ async function pickedComposeFile(target: CommandTarget | null, { app }: Context)
   return answer === null || answer.trim() === "" ? null : answer.trim();
 }
 
+const ACTION_TITLES: Record<ContainerAction, string> = {
+  start: "Starting",
+  stop: "Stopping",
+  restart: "Restarting",
+  remove: "Removing",
+};
+let nextProgress = 0;
+
+async function withProgress(action: ContainerAction, id: string, { app }: Context): Promise<void> {
+  const token = `docker-${nextProgress++}`;
+  app.progress({ token, state: "begin", title: `${ACTION_TITLES[action]} ${id.slice(0, 12)}` });
+  try {
+    await docker.act(action, id);
+  } catch (error) {
+    app.toast(`Could not ${action} the container: ${failure(error)}`, "error");
+  } finally {
+    app.progress({ token, state: "end" });
+  }
+}
+
 async function containerAction(action: ContainerAction, id: string, context: Context): Promise<void> {
   if (action === "remove") {
     const answer = await context.app.confirm({
@@ -94,19 +127,42 @@ async function containerAction(action: ContainerAction, id: string, context: Con
     });
     if (answer !== "confirmed") return;
   }
-  try {
-    await docker.act(action, id);
-  } catch (error) {
-    context.app.toast(`Could not ${action} the container: ${failure(error)}`, "error");
-  }
+  await withProgress(action, id, context);
   await refresh(context);
 }
 
 async function openShell(id: string, { app }: Context): Promise<void> {
   await app.openTerminal({
-    title: `${SHELL} · ${id.slice(0, 12)}`,
-    command: { program: current.program, args: ["exec", "-it", id, SHELL] },
+    title: `shell · ${id.slice(0, 12)}`,
+    command: { program: current.program, args: shellArgs(id) },
   });
+}
+
+async function removeImage(item: string, context: Context): Promise<void> {
+  const id = item.slice(IMAGE_PREFIX.length);
+  const answer = await context.app.confirm({
+    title: "Remove this image?",
+    detail: "Containers that still use it keep it until they are removed.",
+    confirm: "Remove",
+    tone: "error",
+  });
+  if (answer !== "confirmed") return;
+  try {
+    await docker.removeImage(id);
+  } catch (error) {
+    context.app.toast(`Could not remove the image: ${failure(error)}`, "error");
+  }
+  await refresh(context);
+}
+
+async function refreshContainerTab(id: string, context: Context): Promise<void> {
+  const inspected = await docker.inspect(id).catch(() => null);
+  if (inspected === null) return;
+  context.app.patchView({ view: CONTAINER_VIEW, instance: id }, [
+    patch.replace(containerControls(inspected)),
+    patch.replace(ui.details(DETAILS_KEY, inspectedDetails(inspected))),
+  ]);
+  if (inspected.state === "running" && !followers.has(id)) follow(id, context);
 }
 
 async function showLogs(id: string, { app }: Context): Promise<void> {
@@ -182,6 +238,11 @@ createExtension({
       const tag = basename(folder).toLowerCase().replace(/[^a-z0-9._-]/g, "-");
       await inTerminal("docker build", ["build", "-f", file, "-t", tag, folder], folder, context);
     },
+    "image.pull": async (_target, context) => {
+      const name = await context.app.input({ title: "Image to pull", placeholder: "nginx:alpine" });
+      if (name === null || name.trim() === "") return;
+      await inTerminal(`docker pull ${name.trim()}`, ["pull", name.trim()], null, context);
+    },
     "containers.prune": async (_target, context) => {
       const answer = await context.app.confirm({
         title: "Remove every stopped container?",
@@ -220,6 +281,9 @@ createExtension({
           case ACTIONS.exec:
             await openShell(item, context);
             return;
+          case ACTIONS.removeImage:
+            await removeImage(item, context);
+            return;
           case ACTIONS.logs:
           case ACTIONS.inspect:
             await showLogs(item, context);
@@ -239,6 +303,25 @@ createExtension({
         const inspected = id === "" ? null : await docker.inspect(id).catch(() => null);
         if (inspected !== null) follow(id, context);
         return containerView(inspected, id);
+      },
+      async onEvent(event, view, context) {
+        const id = view.instance ?? "";
+        if (event.kind !== "click" || id === "") return;
+        switch (event.action) {
+          case ACTIONS.start:
+          case ACTIONS.stop:
+          case ACTIONS.restart:
+            await withProgress(event.action, id, context);
+            if (event.action !== "stop") stopFollowing(id);
+            await refreshContainerTab(id, context);
+            await refresh(context);
+            return;
+          case ACTIONS.exec:
+            await openShell(id, context);
+            return;
+          default:
+            context.app.log("debug", `unknown container tab action ${event.action}`);
+        }
       },
       onClose(view) {
         if (view.instance) stopFollowing(view.instance);

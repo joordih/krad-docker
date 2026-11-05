@@ -7,6 +7,26 @@ const LABEL_SEPARATOR = ",";
 const LABEL_ASSIGN = "=";
 const LOG_TAIL = "200";
 const OUTPUT_LIMIT = 16 * 1024 * 1024;
+const SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
+export function shellArgs(id) {
+    return ["exec", "-it", id, "sh", "-c", SHELL_PROBE];
+}
+export function parseImages(output) {
+    return output
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => {
+        const image = JSON.parse(line);
+        return {
+            id: image.ID,
+            repository: image.Repository,
+            tag: image.Tag,
+            size: image.Size,
+            created: image.CreatedSince,
+        };
+    });
+}
 const STATES = ["running", "paused", "restarting", "exited", "created", "dead", "removing"];
 function state(text) {
     const lowered = text.toLowerCase();
@@ -87,6 +107,12 @@ export class Docker {
     }
     async act(action, id) {
         await this.output([...ACTION_ARGS[action], id]);
+    }
+    async images() {
+        return parseImages(await this.output(["image", "ls", "--format", "{{json .}}"]));
+    }
+    async removeImage(id) {
+        await this.output(["image", "rm", id]);
     }
     async prune() {
         return this.output(["container", "prune", "--force"]);

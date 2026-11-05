@@ -1,7 +1,7 @@
 import type { Badge, Detail, ItemAction, Node, TreeItem } from "../vendor/krad-ade-extension/index.js";
 import { ui } from "../vendor/krad-ade-extension/index.js";
 
-import type { Container, ContainerState, Inspected } from "./docker.js";
+import type { Container, ContainerState, Image, Inspected } from "./docker.js";
 
 export const TREE_KEY = "containers";
 export const ROOT_KEY = "root";
@@ -18,7 +18,13 @@ export const ACTIONS = {
   logs: "logs",
   exec: "exec",
   inspect: "inspect",
+  removeImage: "remove-image",
 } as const;
+
+export const IMAGE_PREFIX = "image:";
+const IMAGES_KEY = "images";
+const IMAGES_LABEL = "Images";
+const UNTAGGED = "<none>";
 
 const BADGES: Record<ContainerState, Badge> = {
   running: { text: "running", tone: "success" },
@@ -101,17 +107,60 @@ export function containersTree(containers: Container[]): TreeItem[] {
   return [...projects, loose];
 }
 
-export function containersView(containers: Container[] | string): Node {
+function imageName(image: Image): string {
+  if (image.repository === UNTAGGED) return image.id.replace(/^sha256:/, "").slice(0, 12);
+  return image.tag === UNTAGGED ? image.repository : `${image.repository}:${image.tag}`;
+}
+
+export function imagesItem(images: Image[]): TreeItem {
+  return {
+    key: IMAGES_KEY,
+    label: IMAGES_LABEL,
+    description: `${images.length}`,
+    icon: "layers",
+    expansion: "collapsed",
+    children: images
+      .map((image) => ({ image, name: imageName(image) }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map(({ image, name }) => ({
+        key: `${IMAGE_PREFIX}${image.id}`,
+        label: name,
+        description: `${image.size} · ${image.created}`,
+        icon: "file",
+        expansion: "leaf",
+        actions: [{ action: ACTIONS.removeImage, label: "Remove image", icon: "close", tone: "error" }],
+      })),
+  };
+}
+
+export function containersView(containers: Container[] | string, images: Image[] = []): Node {
+  if (typeof containers === "string") {
+    const message = ui.text(MESSAGE_KEY, containers, { color: "text_muted", wrap: "wrap" });
+    return ui.column(ROOT_KEY, [message], { padding: "sm", gap: "sm", height: "fill" });
+  }
+  const items = containersTree(containers);
+  if (images.length > 0) items.push(imagesItem(images));
   const body =
-    typeof containers === "string"
-      ? ui.text(MESSAGE_KEY, containers, { color: "text_muted", wrap: "wrap" })
-      : containers.length === 0
-        ? ui.text(MESSAGE_KEY, "No containers", { color: "text_muted" })
-        : ui.tree(TREE_KEY, containersTree(containers));
+    items.length === 0
+      ? ui.text(MESSAGE_KEY, "No containers", { color: "text_muted" })
+      : ui.tree(TREE_KEY, items);
   return ui.column(ROOT_KEY, [body], { padding: "sm", gap: "sm", height: "fill" });
 }
 
 export const DETAILS_KEY = "details";
+export const CONTROLS_KEY = "controls";
+
+export function containerControls(inspected: Inspected): Node {
+  const running = inspected.state === "running" || inspected.state === "restarting";
+  const buttons = running
+    ? [
+        ui.button("control-stop", ACTIONS.stop, { label: "Stop", icon: "stop" }),
+        ui.button("control-restart", ACTIONS.restart, { label: "Restart", icon: "repeat" }),
+        ui.button("control-shell", ACTIONS.exec, { label: "Open a shell", icon: "terminal", variant: "primary" }),
+      ]
+    : [ui.button("control-start", ACTIONS.start, { label: "Start", icon: "play", variant: "primary" })];
+  return ui.row(CONTROLS_KEY, buttons, { gap: "sm" });
+}
 export const LOGS_KEY = "logs";
 export const LOG_LINES = 5000;
 
@@ -145,6 +194,7 @@ export function containerView(inspected: Inspected | null, id: string): Node {
     ROOT_KEY,
     [
       ui.text("title", inspected.name, { size: "lg", weight: "bold" }),
+      containerControls(inspected),
       ui.details(DETAILS_KEY, inspectedDetails(inspected)),
       ui.divider("rule"),
       ui.text("logs-title", "Logs", { weight: "medium" }),

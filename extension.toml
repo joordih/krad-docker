@@ -35,6 +35,11 @@ title = "Docker: Build image"
 icon = "layers"
 
 [[contributes.command]]
+id = "image.pull"
+title = "Docker: Pull image"
+icon = "add"
+
+[[contributes.command]]
 id = "containers.prune"
 title = "Docker: Remove stopped containers"
 icon = "close"

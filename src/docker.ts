@@ -23,6 +23,45 @@ export interface Container {
 
 export type ContainerAction = "start" | "stop" | "restart" | "remove";
 
+export interface Image {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: string;
+}
+
+interface ImageLine {
+  ID: string;
+  Repository: string;
+  Tag: string;
+  Size: string;
+  CreatedSince: string;
+}
+
+const SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
+
+export function shellArgs(id: string): string[] {
+  return ["exec", "-it", id, "sh", "-c", SHELL_PROBE];
+}
+
+export function parseImages(output: string): Image[] {
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const image = JSON.parse(line) as ImageLine;
+      return {
+        id: image.ID,
+        repository: image.Repository,
+        tag: image.Tag,
+        size: image.Size,
+        created: image.CreatedSince,
+      };
+    });
+}
+
 interface PsLine {
   ID: string;
   Names: string;
@@ -151,6 +190,14 @@ export class Docker {
 
   async act(action: ContainerAction, id: string): Promise<void> {
     await this.output([...ACTION_ARGS[action], id]);
+  }
+
+  async images(): Promise<Image[]> {
+    return parseImages(await this.output(["image", "ls", "--format", "{{json .}}"]));
+  }
+
+  async removeImage(id: string): Promise<void> {
+    await this.output(["image", "rm", id]);
   }
 
   async prune(): Promise<string> {
