@@ -35,6 +35,11 @@ title = "Docker: Build image"
 icon = "layers"
 
 [[contributes.command]]
+id = "container.new"
+title = "Docker: New container"
+icon = "add"
+
+[[contributes.command]]
 id = "image.pull"
 title = "Docker: Pull image"
 icon = "add"
@@ -70,6 +75,12 @@ id = "containers"
 title = "Containers"
 zone = "sidebar"
 icon = "layers"
+
+[[contributes.view]]
+id = "new-container"
+title = "New container"
+zone = "file_tab"
+icon = "add"
 
 [[contributes.view]]
 id = "files"

@@ -6,13 +6,25 @@ import { basename, dirname, join } from "node:path";
 import type { CommandTarget, Context, SettingsValues, ViewRef } from "../vendor/krad-ade-extension/index.js";
 import { createExtension, patch, ui } from "../vendor/krad-ade-extension/index.js";
 
-import { Docker, shellArgs, type Container, type ContainerAction } from "./docker.js";
+import {
+  checkRun,
+  Docker,
+  listOf,
+  RESTART_POLICIES,
+  shellArgs,
+  wordsOf,
+  type Container,
+  type ContainerAction,
+  type RestartPolicy,
+  type RunSpec,
+} from "./docker.js";
 import {
   ACTIONS,
   containerControls,
   containersView,
   containerView,
   DETAILS_KEY,
+  FIELDS,
   fileItem,
   filesView,
   FILES_TREE_KEY,
@@ -20,11 +32,14 @@ import {
   PATH_PREFIX,
   inspectedDetails,
   LOGS_KEY,
+  newContainerView,
+  PROBLEMS_KEY,
 } from "./tree.js";
 
 const CONTAINERS_VIEW = "containers";
 const CONTAINER_VIEW = "container";
 const FILES_VIEW = "files";
+const NEW_VIEW = "new-container";
 const ROOT_DIR = "/";
 const COPIES_DIR = join(tmpdir(), "krad-docker");
 const SHORT_ID = 12;
@@ -231,6 +246,70 @@ async function uploadCopy(id: string, item: string, { app }: Context): Promise<v
   }
 }
 
+function textValue(values: Record<string, unknown>, key: string): string {
+  const value = values[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function runSpec(values: Record<string, unknown>): RunSpec {
+  const restart = textValue(values, FIELDS.restart);
+  return {
+    image: textValue(values, FIELDS.image),
+    name: textValue(values, FIELDS.name),
+    ports: listOf(textValue(values, FIELDS.ports)),
+    env: listOf(textValue(values, FIELDS.env)),
+    volumes: listOf(textValue(values, FIELDS.volumes)),
+    command: wordsOf(textValue(values, FIELDS.command)),
+    restart: RESTART_POLICIES.includes(restart as RestartPolicy) ? (restart as RestartPolicy) : "no",
+  };
+}
+
+async function newContainer(image: string, { app }: Context): Promise<void> {
+  await app.openView({ view: NEW_VIEW, instance: image === "" ? null : image, title: "New container" });
+}
+
+async function imageReference(item: string): Promise<string> {
+  const id = item.slice(IMAGE_PREFIX.length);
+  const found = (await docker.images().catch(() => [])).find((image) => image.id === id);
+  if (found === undefined || found.repository === "<none>") return id;
+  return found.tag === "<none>" ? found.repository : `${found.repository}:${found.tag}`;
+}
+
+async function createContainer(values: Record<string, unknown>, view: ViewRef, context: Context): Promise<void> {
+  const { app } = context;
+  const spec = runSpec(values);
+  const problems = checkRun(spec);
+  const show = (messages: { field: string; message: string }[]) =>
+    app.patchView(view, [
+      patch.replace(
+        ui.column(
+          PROBLEMS_KEY,
+          messages.map((problem, index) => ui.text(`problem-${index}`, problem.message, { color: "error", wrap: "wrap" })),
+          { gap: "xs" },
+        ),
+      ),
+    ]);
+  if (problems.length > 0) {
+    show(problems);
+    return;
+  }
+  show([]);
+  const token = `docker-${nextProgress++}`;
+  app.progress({ token, state: "begin", title: `Creating a container from ${spec.image}` });
+  try {
+    const id = await docker.run(spec);
+    app.toast(`Started ${spec.name || id.slice(0, SHORT_ID)}`, "success");
+    lastTree = "";
+    await refresh(context);
+    await app.closeView(view);
+    await showLogs(id, context);
+  } catch (error) {
+    show([{ field: "image", message: failure(error) }]);
+  } finally {
+    app.progress({ token, state: "end" });
+  }
+}
+
 async function showLogs(id: string, { app }: Context): Promise<void> {
   await app.openView({ view: CONTAINER_VIEW, instance: id, title: id.slice(0, 12) });
 }
@@ -304,6 +383,9 @@ createExtension({
       const tag = basename(folder).toLowerCase().replace(/[^a-z0-9._-]/g, "-");
       await inTerminal("docker build", ["build", "-f", file, "-t", tag, folder], folder, context);
     },
+    "container.new": async (_target, context) => {
+      await newContainer("", context);
+    },
     "image.pull": async (_target, context) => {
       const name = await context.app.input({ title: "Image to pull", placeholder: "nginx:alpine" });
       if (name === null || name.trim() === "") return;
@@ -335,6 +417,10 @@ createExtension({
         return node;
       },
       async onEvent(event, _view, context) {
+        if (event.kind === "click" && event.action === ACTIONS.newContainer) {
+          await newContainer("", context);
+          return;
+        }
         if (event.kind !== "item_action") return;
         const { action, item } = event;
         switch (action) {
@@ -349,6 +435,9 @@ createExtension({
             return;
           case ACTIONS.files:
             await browseFiles(item, context);
+            return;
+          case ACTIONS.runImage:
+            await newContainer(await imageReference(item), context);
             return;
           case ACTIONS.removeImage:
             await removeImage(item, context);
@@ -394,6 +483,15 @@ createExtension({
       },
       onClose(view) {
         if (view.instance) stopFollowing(view.instance);
+      },
+    },
+    [NEW_VIEW]: {
+      render(view) {
+        return newContainerView(view.instance ?? "");
+      },
+      async onEvent(event, view, context) {
+        if (event.kind !== "form" || event.action !== ACTIONS.create) return;
+        await createContainer(event.values, view, context);
       },
     },
     [FILES_VIEW]: {

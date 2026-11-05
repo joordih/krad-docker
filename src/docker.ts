@@ -65,6 +65,68 @@ export function parseListing(dir: string, output: string): DirEntry[] {
     .sort((left, right) => Number(right.isDir) - Number(left.isDir) || left.name.localeCompare(right.name));
 }
 
+export type RestartPolicy = "no" | "always" | "unless-stopped" | "on-failure";
+
+export const RESTART_POLICIES: readonly RestartPolicy[] = ["no", "unless-stopped", "always", "on-failure"];
+
+export interface RunSpec {
+  image: string;
+  name: string;
+  ports: string[];
+  env: string[];
+  volumes: string[];
+  command: string[];
+  restart: RestartPolicy;
+}
+
+export type RunProblem = { field: string; message: string };
+
+const LIST_SEPARATOR = /[,\n]/;
+const PORT_PATTERN = /^(\d{1,5}(-\d{1,5})?:)?\d{1,5}(-\d{1,5})?(\/(tcp|udp))?$|^[\d.]+:\d{1,5}:\d{1,5}(\/(tcp|udp))?$/;
+const ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+const VOLUME_PATTERN = /^[^:]+:\/[^:]*(:(ro|rw))?$/;
+
+export function listOf(text: string): string[] {
+  return text
+    .split(LIST_SEPARATOR)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+export function wordsOf(text: string): string[] {
+  return text.trim() === "" ? [] : text.trim().split(/\s+/);
+}
+
+export function checkRun(spec: RunSpec): RunProblem[] {
+  const problems: RunProblem[] = [];
+  if (spec.image.trim() === "") problems.push({ field: "image", message: "Name the image to run." });
+  if (spec.name !== "" && !NAME_PATTERN.test(spec.name)) {
+    problems.push({ field: "name", message: "A name holds letters, digits, '_', '.' and '-'." });
+  }
+  const bad = (values: string[], pattern: RegExp) => values.filter((value) => !pattern.test(value));
+  for (const port of bad(spec.ports, PORT_PATTERN)) {
+    problems.push({ field: "ports", message: `${port} is not host:container, e.g. 8080:80` });
+  }
+  for (const variable of bad(spec.env, ENV_PATTERN)) {
+    problems.push({ field: "env", message: `${variable} is not NAME=value` });
+  }
+  for (const volume of bad(spec.volumes, VOLUME_PATTERN)) {
+    problems.push({ field: "volumes", message: `${volume} is not source:/path, e.g. ./data:/data` });
+  }
+  return problems;
+}
+
+export function runArgs(spec: RunSpec): string[] {
+  const args = ["run", "--detach"];
+  if (spec.name !== "") args.push("--name", spec.name);
+  if (spec.restart !== "no") args.push("--restart", spec.restart);
+  for (const port of spec.ports) args.push("--publish", port);
+  for (const variable of spec.env) args.push("--env", variable);
+  for (const volume of spec.volumes) args.push("--volume", volume);
+  return [...args, spec.image.trim(), ...spec.command];
+}
+
 const SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
 
 export function shellArgs(id: string): string[] {
@@ -236,6 +298,10 @@ export class Docker {
 
   async copyIn(id: string, source: string, path: string): Promise<void> {
     await this.output(["cp", source, `${id}:${path}`]);
+  }
+
+  async run(spec: RunSpec): Promise<string> {
+    return (await this.output(runArgs(spec))).trim();
   }
 
   async prune(): Promise<string> {

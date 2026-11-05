@@ -30,8 +30,9 @@ test("running containers offer stop and a shell, stopped ones offer start", () =
 test("the sidebar view is a tree, or a message when Docker is missing", () => {
   const view = containersView(parsePs(fixture("ps-running.jsonl")));
   assert.equal(view.type, "flex");
-  assert.equal(view.children[0].key, TREE_KEY);
-  assert.equal(view.children[0].type, "tree");
+  assert.equal(view.children[0].children[0].action, "new-container");
+  assert.equal(view.children[1].key, TREE_KEY);
+  assert.equal(view.children[1].type, "tree");
   const missing = containersView("Docker is not reachable: spawn docker ENOENT");
   assert.equal(missing.children[0].type, "text");
 });
@@ -50,13 +51,13 @@ const IMAGES = [
 
 test("images list under their own collapsed group with a remove action", () => {
   const view = containersView(parsePs(fixture("ps-running.jsonl")), parseImages(IMAGES));
-  const items = view.children[0].items;
+  const items = view.children[1].items;
   const images = items[items.length - 1];
   assert.equal(images.key, "images");
   assert.equal(images.expansion, "collapsed");
   assert.deepEqual(images.children.map((image) => image.label), ["bbb222", "nginx:alpine"]);
   assert.equal(images.children[1].key, "image:sha256:aaa111");
-  assert.equal(images.children[1].actions[0].action, "remove-image");
+  assert.deepEqual(images.children[1].actions.map((action) => action.action), ["run-image", "remove-image"]);
 });
 
 test("a running container tab offers stop, restart and a shell; a stopped one offers start", () => {
@@ -91,4 +92,32 @@ test("folders expand lazily and files offer open and upload", async () => {
   assert.equal(opened.expansion, "expanded");
   const file = fileItem({ name: "hostname", path: "/etc/hostname", isDir: false });
   assert.deepEqual(file.actions.map((action) => action.action), ["open-file", "upload-file"]);
+});
+
+test("a run spec is checked and turned into docker run arguments", async () => {
+  const { checkRun, listOf, runArgs, wordsOf } = await import("../dist/docker.js");
+  const spec = {
+    image: "nginx:alpine",
+    name: "web-2",
+    ports: listOf("8081:80, 8443:443/tcp"),
+    env: listOf("MODE=dev\nDEBUG=1"),
+    volumes: listOf("./site:/usr/share/nginx/html:ro"),
+    command: wordsOf("nginx -g 'daemon off;'"),
+    restart: "unless-stopped",
+  };
+  assert.deepEqual(checkRun(spec), []);
+  assert.deepEqual(runArgs(spec).slice(0, 8), ["run", "--detach", "--name", "web-2", "--restart", "unless-stopped", "--publish", "8081:80"]);
+  assert.ok(runArgs(spec).includes("--env") && runArgs(spec).includes("--volume"));
+  const fields = (problems) => problems.map((problem) => problem.field);
+  assert.deepEqual(fields(checkRun({ ...spec, image: "" })), ["image"]);
+  assert.deepEqual(fields(checkRun({ ...spec, ports: ["80"] , env: ["nope"], volumes: ["data"] })), ["env", "volumes"]);
+  assert.deepEqual(fields(checkRun({ ...spec, name: "bad name" })), ["name"]);
+});
+
+test("the new container form is prefilled with the chosen image", async () => {
+  const { newContainerView } = await import("../dist/tree.js");
+  const view = newContainerView("alpine:3");
+  const form = view.children.find((child) => child.type === "form");
+  assert.equal(form.submit, "create-container");
+  assert.equal(form.fields.find((field) => field.key === "image").value, "alpine:3");
 });

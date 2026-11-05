@@ -1,4 +1,5 @@
 import { ui } from "../vendor/krad-ade-extension/index.js";
+import { RESTART_POLICIES } from "./docker.js";
 export const TREE_KEY = "containers";
 export const ROOT_KEY = "root";
 export const MESSAGE_KEY = "message";
@@ -18,6 +19,20 @@ export const ACTIONS = {
     openFile: "open-file",
     upload: "upload-file",
     refreshFiles: "refresh-files",
+    newContainer: "new-container",
+    runImage: "run-image",
+    create: "create-container",
+};
+export const FORM_KEY = "new-container-form";
+export const PROBLEMS_KEY = "new-container-problems";
+export const FIELDS = {
+    image: "image",
+    name: "name",
+    ports: "ports",
+    env: "env",
+    volumes: "volumes",
+    command: "command",
+    restart: "restart",
 };
 export const FILES_TREE_KEY = "files";
 export const PATH_PREFIX = "path:";
@@ -126,7 +141,10 @@ export function imagesItem(images) {
             description: `${image.size} · ${image.created}`,
             icon: "file",
             expansion: "leaf",
-            actions: [{ action: ACTIONS.removeImage, label: "Remove image", icon: "close", tone: "error" }],
+            actions: [
+                { action: ACTIONS.runImage, label: "Run container", icon: "play" },
+                { action: ACTIONS.removeImage, label: "Remove image", icon: "close", tone: "error" },
+            ],
         })),
     };
 }
@@ -141,7 +159,8 @@ export function containersView(containers, images = []) {
     const body = items.length === 0
         ? ui.text(MESSAGE_KEY, "No containers", { color: "text_muted" })
         : ui.tree(TREE_KEY, items);
-    return ui.column(ROOT_KEY, [body], { padding: "sm", gap: "sm", height: "fill" });
+    const toolbar = ui.row("containers-toolbar", [ui.button("containers-new", ACTIONS.newContainer, { label: "New container", icon: "add", variant: "primary" })], { gap: "sm" });
+    return ui.column(ROOT_KEY, [toolbar, body], { padding: "sm", gap: "sm", height: "fill" });
 }
 export const DETAILS_KEY = "details";
 export const CONTROLS_KEY = "controls";
@@ -223,4 +242,34 @@ export function filesView(name, entries) {
         ? ui.text(MESSAGE_KEY, entries, { color: "text_muted", wrap: "wrap" })
         : ui.tree(FILES_TREE_KEY, entries.map((entry) => fileItem(entry)));
     return ui.column(ROOT_KEY, [header, ui.text(FILES_HINT_KEY, FILES_HINT, { size: "xs", color: "text_muted" }), body], { padding: "md", gap: "sm", height: "fill" });
+}
+export function newContainerView(image, problems = []) {
+    const text = (key, label, placeholder, value = "") => ({
+        key,
+        label,
+        type: "text",
+        value,
+        placeholder,
+    });
+    const form = ui.form(FORM_KEY, ACTIONS.create, [
+        text(FIELDS.image, "Image", "nginx:alpine", image),
+        text(FIELDS.name, "Name", "optional, e.g. web"),
+        text(FIELDS.ports, "Ports", "host:container, comma separated, e.g. 8080:80"),
+        text(FIELDS.env, "Environment", "NAME=value, comma separated"),
+        text(FIELDS.volumes, "Volumes", "source:/path, comma separated"),
+        text(FIELDS.command, "Command", "optional, overrides the image's command"),
+        {
+            key: FIELDS.restart,
+            label: "Restart",
+            type: "select",
+            options: RESTART_POLICIES.map((policy) => ({ value: policy, label: policy })),
+            value: "no",
+        },
+    ], "Create and start");
+    const messages = problems.map((problem, index) => ui.text(`problem-${index}`, problem.message, { color: "error", wrap: "wrap" }));
+    return ui.column(ROOT_KEY, [
+        ui.text("new-container-title", "New container", { size: "lg", weight: "bold" }),
+        ui.column(PROBLEMS_KEY, messages, { gap: "xs" }),
+        form,
+    ], { padding: "md", gap: "md", height: "fill" });
 }

@@ -1,7 +1,7 @@
 import type { Badge, Detail, ItemAction, Node, TreeItem } from "../vendor/krad-ade-extension/index.js";
 import { ui } from "../vendor/krad-ade-extension/index.js";
 
-import type { Container, ContainerState, DirEntry, Image, Inspected } from "./docker.js";
+import { RESTART_POLICIES, type Container, type ContainerState, type DirEntry, type Image, type Inspected, type RunProblem } from "./docker.js";
 
 export const TREE_KEY = "containers";
 export const ROOT_KEY = "root";
@@ -23,6 +23,22 @@ export const ACTIONS = {
   openFile: "open-file",
   upload: "upload-file",
   refreshFiles: "refresh-files",
+  newContainer: "new-container",
+  runImage: "run-image",
+  create: "create-container",
+} as const;
+
+export const FORM_KEY = "new-container-form";
+export const PROBLEMS_KEY = "new-container-problems";
+
+export const FIELDS = {
+  image: "image",
+  name: "name",
+  ports: "ports",
+  env: "env",
+  volumes: "volumes",
+  command: "command",
+  restart: "restart",
 } as const;
 
 export const FILES_TREE_KEY = "files";
@@ -143,7 +159,10 @@ export function imagesItem(images: Image[]): TreeItem {
         description: `${image.size} · ${image.created}`,
         icon: "file",
         expansion: "leaf",
-        actions: [{ action: ACTIONS.removeImage, label: "Remove image", icon: "close", tone: "error" }],
+        actions: [
+          { action: ACTIONS.runImage, label: "Run container", icon: "play" },
+          { action: ACTIONS.removeImage, label: "Remove image", icon: "close", tone: "error" },
+        ],
       })),
   };
 }
@@ -159,7 +178,12 @@ export function containersView(containers: Container[] | string, images: Image[]
     items.length === 0
       ? ui.text(MESSAGE_KEY, "No containers", { color: "text_muted" })
       : ui.tree(TREE_KEY, items);
-  return ui.column(ROOT_KEY, [body], { padding: "sm", gap: "sm", height: "fill" });
+  const toolbar = ui.row(
+    "containers-toolbar",
+    [ui.button("containers-new", ACTIONS.newContainer, { label: "New container", icon: "add", variant: "primary" })],
+    { gap: "sm" },
+  );
+  return ui.column(ROOT_KEY, [toolbar, body], { padding: "sm", gap: "sm", height: "fill" });
 }
 
 export const DETAILS_KEY = "details";
@@ -258,5 +282,47 @@ export function filesView(name: string, entries: DirEntry[] | string): Node {
     ROOT_KEY,
     [header, ui.text(FILES_HINT_KEY, FILES_HINT, { size: "xs", color: "text_muted" }), body],
     { padding: "md", gap: "sm", height: "fill" },
+  );
+}
+
+export function newContainerView(image: string, problems: RunProblem[] = []): Node {
+  const text = (key: string, label: string, placeholder: string, value = "") => ({
+    key,
+    label,
+    type: "text" as const,
+    value,
+    placeholder,
+  });
+  const form = ui.form(
+    FORM_KEY,
+    ACTIONS.create,
+    [
+      text(FIELDS.image, "Image", "nginx:alpine", image),
+      text(FIELDS.name, "Name", "optional, e.g. web"),
+      text(FIELDS.ports, "Ports", "host:container, comma separated, e.g. 8080:80"),
+      text(FIELDS.env, "Environment", "NAME=value, comma separated"),
+      text(FIELDS.volumes, "Volumes", "source:/path, comma separated"),
+      text(FIELDS.command, "Command", "optional, overrides the image's command"),
+      {
+        key: FIELDS.restart,
+        label: "Restart",
+        type: "select" as const,
+        options: RESTART_POLICIES.map((policy) => ({ value: policy, label: policy })),
+        value: "no",
+      },
+    ],
+    "Create and start",
+  );
+  const messages = problems.map((problem, index) =>
+    ui.text(`problem-${index}`, problem.message, { color: "error", wrap: "wrap" }),
+  );
+  return ui.column(
+    ROOT_KEY,
+    [
+      ui.text("new-container-title", "New container", { size: "lg", weight: "bold" }),
+      ui.column(PROBLEMS_KEY, messages, { gap: "xs" }),
+      form,
+    ],
+    { padding: "md", gap: "md", height: "fill" },
   );
 }

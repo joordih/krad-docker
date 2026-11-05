@@ -60,7 +60,7 @@ test("the program renders containers, answers tools and lists machines through t
 
   program.send({ id: 2, method: "view/render", params: { view: "containers" } });
   const view = await program.expectReply(2);
-  const tree = view.result.children[0];
+  const tree = view.result.children[1];
   assert.equal(tree.type, "tree");
   assert.deepEqual(tree.items.map((item) => item.label), ["shop", "Standalone"]);
   assert.equal(tree.items[0].children.length, 3);
