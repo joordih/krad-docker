@@ -17,13 +17,14 @@ Containers, images and Compose projects in Krad ADE, through the `docker` CLI.
 ## Install
 
 The extension runs on Node 20 or newer, which Krad installs when it is missing. The repository
-carries its built program (`dist/`) and the SDK it uses (`vendor/krad-ade-extension/`, a copy of
-the built `@krad-ade/extension` from `sdk/typescript` in the Krad ADE repository), so nothing is
-installed when it is added.
+carries its built program, `dist/main.js`, bundled with the
+[`@krad-ade/extension`](https://www.npmjs.com/package/@krad-ade/extension) SDK into one file, so
+nothing is installed and no `npm install` runs when it is added.
 
-1. Settings → Languages → Extensions → Add folder, and pick this folder (or add it by its git
-   address).
-2. Trust it when Krad shows what it declares.
+1. Settings → Extensions → Browse, and install Docker from the index (or add this folder or its
+   git address).
+2. Trust it when Krad shows what it declares, including the `terminals` permission it needs for
+   shells, logs and Compose.
 
 ## Settings
 
@@ -40,6 +41,6 @@ npm install
 npm test
 ```
 
-`npm test` builds `dist/` and runs the tests against a fake `docker` in `test/fixtures/bin`.
-After changing `src/`, commit the rebuilt `dist/`. To update the SDK, build it in
-`sdk/typescript` and copy its `dist/` over `vendor/krad-ade-extension/`.
+`npm test` type-checks, bundles `dist/main.js` with esbuild and runs the tests against a fake
+`docker` in `test/fixtures/bin`. After changing `src/` or updating `@krad-ade/extension`, commit
+the rebuilt `dist/`.

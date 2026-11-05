@@ -1,4 +1,4 @@
-import { ui } from "../vendor/krad-ade-extension/index.js";
+import { ui } from "@krad-ade/extension";
 import { RESTART_POLICIES } from "./docker.js";
 export const TREE_KEY = "containers";
 export const ROOT_KEY = "root";

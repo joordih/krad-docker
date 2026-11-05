@@ -3,8 +3,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-import type { CommandTarget, Context, SettingsValues, ViewRef } from "../vendor/krad-ade-extension/index.js";
-import { createExtension, patch, ui } from "../vendor/krad-ade-extension/index.js";
+import type { CommandTarget, Context, SettingsValues, ViewRef } from "@krad-ade/extension";
+import { createExtension, patch, ui } from "@krad-ade/extension";
 
 import {
   checkRun,

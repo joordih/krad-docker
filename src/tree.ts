@@ -1,5 +1,5 @@
-import type { Badge, Detail, ItemAction, Node, TreeItem } from "../vendor/krad-ade-extension/index.js";
-import { ui } from "../vendor/krad-ade-extension/index.js";
+import type { Badge, Detail, ItemAction, Node, TreeItem } from "@krad-ade/extension";
+import { ui } from "@krad-ade/extension";
 
 import { RESTART_POLICIES, type Container, type ContainerState, type DirEntry, type Image, type Inspected, type RunProblem } from "./docker.js";
 

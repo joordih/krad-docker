@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { encodeFrame, FrameDecoder } from "../vendor/krad-ade-extension/index.js";
+import { encodeFrame, FrameDecoder } from "@krad-ade/extension";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const fakeBin = fileURLToPath(new URL("./fixtures/bin", import.meta.url));
