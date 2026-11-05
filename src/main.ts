@@ -1,5 +1,7 @@
 import type { ChildProcess } from "node:child_process";
-import { basename, dirname } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 
 import type { CommandTarget, Context, SettingsValues, ViewRef } from "../vendor/krad-ade-extension/index.js";
 import { createExtension, patch, ui } from "../vendor/krad-ade-extension/index.js";
@@ -11,13 +13,21 @@ import {
   containersView,
   containerView,
   DETAILS_KEY,
+  fileItem,
+  filesView,
+  FILES_TREE_KEY,
   IMAGE_PREFIX,
+  PATH_PREFIX,
   inspectedDetails,
   LOGS_KEY,
 } from "./tree.js";
 
 const CONTAINERS_VIEW = "containers";
 const CONTAINER_VIEW = "container";
+const FILES_VIEW = "files";
+const ROOT_DIR = "/";
+const COPIES_DIR = join(tmpdir(), "krad-docker");
+const SHORT_ID = 12;
 const HOST_KIND = "container";
 const SHELL = "sh";
 const MILLISECONDS = 1000;
@@ -165,6 +175,62 @@ async function refreshContainerTab(id: string, context: Context): Promise<void> 
   if (inspected.state === "running" && !followers.has(id)) follow(id, context);
 }
 
+function localCopy(id: string, path: string): string {
+  return join(COPIES_DIR, id.slice(0, SHORT_ID), path);
+}
+
+async function filesNode(id: string) {
+  const inspected = await docker.inspect(id).catch(() => null);
+  const name = inspected?.name ?? id.slice(0, SHORT_ID);
+  try {
+    return filesView(name, await docker.listDir(id, ROOT_DIR));
+  } catch (error) {
+    return filesView(name, `Could not list the container's files: ${failure(error)}`);
+  }
+}
+
+async function browseFiles(id: string, { app }: Context): Promise<void> {
+  await app.openView({ view: FILES_VIEW, instance: id, title: `files · ${id.slice(0, SHORT_ID)}` });
+}
+
+async function expandFolder(id: string, item: string, { app }: Context): Promise<void> {
+  const path = item.slice(PATH_PREFIX.length);
+  try {
+    const children = (await docker.listDir(id, path)).map((entry) => fileItem(entry));
+    const folder = fileItem({ name: basename(path) || ROOT_DIR, path, isDir: true }, children);
+    app.patchView({ view: FILES_VIEW, instance: id }, [patch.replaceItem(FILES_TREE_KEY, folder)]);
+  } catch (error) {
+    app.toast(`Could not open ${path}: ${failure(error)}`, "error");
+  }
+}
+
+async function openCopy(id: string, item: string, { app }: Context): Promise<void> {
+  const path = item.slice(PATH_PREFIX.length);
+  const local = localCopy(id, path);
+  try {
+    mkdirSync(dirname(local), { recursive: true });
+    await docker.copyOut(id, path, local);
+    await app.openFile({ path: local });
+  } catch (error) {
+    app.toast(`Could not copy ${path}: ${failure(error)}`, "error");
+  }
+}
+
+async function uploadCopy(id: string, item: string, { app }: Context): Promise<void> {
+  const path = item.slice(PATH_PREFIX.length);
+  const local = localCopy(id, path);
+  if (!existsSync(local)) {
+    app.toast(`Open ${basename(path)} first; there is no local copy to upload.`, "info");
+    return;
+  }
+  try {
+    await docker.copyIn(id, local, path);
+    app.toast(`Uploaded ${path}`, "success");
+  } catch (error) {
+    app.toast(`Could not upload ${path}: ${failure(error)}`, "error");
+  }
+}
+
 async function showLogs(id: string, { app }: Context): Promise<void> {
   await app.openView({ view: CONTAINER_VIEW, instance: id, title: id.slice(0, 12) });
 }
@@ -281,6 +347,9 @@ createExtension({
           case ACTIONS.exec:
             await openShell(item, context);
             return;
+          case ACTIONS.files:
+            await browseFiles(item, context);
+            return;
           case ACTIONS.removeImage:
             await removeImage(item, context);
             return;
@@ -325,6 +394,26 @@ createExtension({
       },
       onClose(view) {
         if (view.instance) stopFollowing(view.instance);
+      },
+    },
+    [FILES_VIEW]: {
+      async render(view) {
+        return filesNode(view.instance ?? "");
+      },
+      async onEvent(event, view, context) {
+        const id = view.instance ?? "";
+        if (id === "") return;
+        if (event.kind === "expand") {
+          await expandFolder(id, event.item, context);
+          return;
+        }
+        if (event.kind === "click" && event.action === ACTIONS.refreshFiles) {
+          context.app.patchView(view, [patch.replace(await filesNode(id))]);
+          return;
+        }
+        if (event.kind !== "item_action") return;
+        if (event.action === ACTIONS.openFile) await openCopy(id, event.item, context);
+        if (event.action === ACTIONS.upload) await uploadCopy(id, event.item, context);
       },
     },
   },

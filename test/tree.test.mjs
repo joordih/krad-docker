@@ -72,3 +72,23 @@ test("the shell prefers bash and falls back to sh", () => {
   assert.match(args[5], /bash/);
   assert.match(args[5], /exec sh/);
 });
+
+test("a listing puts folders first and builds absolute paths", async () => {
+  const { parseListing, childPath } = await import("../dist/docker.js");
+  const entries = parseListing("/etc", "nginx/\nhostname\napk/\n./\n../\n");
+  assert.deepEqual(entries.map((entry) => entry.name), ["apk", "nginx", "hostname"]);
+  assert.equal(entries[2].path, "/etc/hostname");
+  assert.equal(entries[0].isDir, true);
+  assert.equal(childPath("/", "bin"), "/bin");
+});
+
+test("folders expand lazily and files offer open and upload", async () => {
+  const { fileItem } = await import("../dist/tree.js");
+  const folder = fileItem({ name: "etc", path: "/etc", isDir: true });
+  assert.equal(folder.key, "path:/etc");
+  assert.equal(folder.expansion, "collapsed");
+  const opened = fileItem({ name: "etc", path: "/etc", isDir: true }, []);
+  assert.equal(opened.expansion, "expanded");
+  const file = fileItem({ name: "hostname", path: "/etc/hostname", isDir: false });
+  assert.deepEqual(file.actions.map((action) => action.action), ["open-file", "upload-file"]);
+});

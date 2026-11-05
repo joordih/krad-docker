@@ -7,6 +7,23 @@ const LABEL_SEPARATOR = ",";
 const LABEL_ASSIGN = "=";
 const LOG_TAIL = "200";
 const OUTPUT_LIMIT = 16 * 1024 * 1024;
+const DIR_MARK = "/";
+const ROOT = "/";
+export function childPath(dir, name) {
+    return dir.endsWith(DIR_MARK) ? `${dir}${name}` : `${dir}${DIR_MARK}${name}`;
+}
+export function parseListing(dir, output) {
+    return output
+        .split("\n")
+        .map((line) => line.replace(/\r$/, ""))
+        .filter((line) => line.length > 0 && line !== "./" && line !== "../")
+        .map((line) => {
+        const isDir = line.endsWith(DIR_MARK);
+        const name = isDir ? line.slice(0, -1) : line;
+        return { name, path: childPath(dir === "" ? ROOT : dir, name), isDir };
+    })
+        .sort((left, right) => Number(right.isDir) - Number(left.isDir) || left.name.localeCompare(right.name));
+}
 const SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
 export function shellArgs(id) {
     return ["exec", "-it", id, "sh", "-c", SHELL_PROBE];
@@ -113,6 +130,15 @@ export class Docker {
     }
     async removeImage(id) {
         await this.output(["image", "rm", id]);
+    }
+    async listDir(id, dir) {
+        return parseListing(dir, await this.output(["exec", id, "ls", "-1Ap", "--", dir]));
+    }
+    async copyOut(id, path, destination) {
+        await this.output(["cp", `${id}:${path}`, destination]);
+    }
+    async copyIn(id, source, path) {
+        await this.output(["cp", source, `${id}:${path}`]);
     }
     async prune() {
         return this.output(["container", "prune", "--force"]);

@@ -72,6 +72,12 @@ zone = "sidebar"
 icon = "layers"
 
 [[contributes.view]]
+id = "files"
+title = "Container files"
+zone = "file_tab"
+icon = "folder"
+
+[[contributes.view]]
 id = "container"
 title = "Container"
 zone = "file_tab"

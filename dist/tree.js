@@ -14,7 +14,16 @@ export const ACTIONS = {
     exec: "exec",
     inspect: "inspect",
     removeImage: "remove-image",
+    files: "files",
+    openFile: "open-file",
+    upload: "upload-file",
+    refreshFiles: "refresh-files",
 };
+export const FILES_TREE_KEY = "files";
+export const PATH_PREFIX = "path:";
+const FILES_TITLE_KEY = "files-title";
+const FILES_HINT_KEY = "files-hint";
+const FILES_HINT = "Files open as a local copy; upload a changed copy back to the container.";
 export const IMAGE_PREFIX = "image:";
 const IMAGES_KEY = "images";
 const IMAGES_LABEL = "Images";
@@ -44,7 +53,7 @@ function menu(container) {
         { action: ACTIONS.inspect, label: "Inspect", icon: "search" },
     ];
     if (container.state === "running") {
-        items.splice(1, 0, { action: ACTIONS.exec, label: "Open a shell", icon: "terminal" });
+        items.splice(1, 0, { action: ACTIONS.exec, label: "Open a shell", icon: "terminal" }, { action: ACTIONS.files, label: "Browse files", icon: "folder" });
     }
     return items;
 }
@@ -183,4 +192,35 @@ export function containerView(inspected, id) {
         ui.text("logs-title", "Logs", { weight: "medium" }),
         ui.stream(LOGS_KEY, [], LOG_LINES),
     ], { padding: "md", gap: "sm", height: "fill" });
+}
+export function fileItem(entry, children = null) {
+    if (entry.isDir) {
+        return {
+            key: `${PATH_PREFIX}${entry.path}`,
+            label: entry.name,
+            icon: "folder",
+            expansion: children === null ? "collapsed" : "expanded",
+            children: children ?? [],
+        };
+    }
+    return {
+        key: `${PATH_PREFIX}${entry.path}`,
+        label: entry.name,
+        icon: "file",
+        expansion: "leaf",
+        actions: [
+            { action: ACTIONS.openFile, label: "Open a copy", icon: "open-external" },
+            { action: ACTIONS.upload, label: "Upload to container", icon: "exchange" },
+        ],
+    };
+}
+export function filesView(name, entries) {
+    const header = ui.row("files-header", [
+        ui.text(FILES_TITLE_KEY, `${name}:/`, { size: "md", weight: "bold", font: "mono" }),
+        ui.button("files-refresh", ACTIONS.refreshFiles, { label: "Refresh", icon: "refresh", variant: "ghost" }),
+    ], { gap: "sm" });
+    const body = typeof entries === "string"
+        ? ui.text(MESSAGE_KEY, entries, { color: "text_muted", wrap: "wrap" })
+        : ui.tree(FILES_TREE_KEY, entries.map((entry) => fileItem(entry)));
+    return ui.column(ROOT_KEY, [header, ui.text(FILES_HINT_KEY, FILES_HINT, { size: "xs", color: "text_muted" }), body], { padding: "md", gap: "sm", height: "fill" });
 }

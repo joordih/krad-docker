@@ -39,6 +39,32 @@ interface ImageLine {
   CreatedSince: string;
 }
 
+export interface DirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+const DIR_MARK = "/";
+const ROOT = "/";
+
+export function childPath(dir: string, name: string): string {
+  return dir.endsWith(DIR_MARK) ? `${dir}${name}` : `${dir}${DIR_MARK}${name}`;
+}
+
+export function parseListing(dir: string, output: string): DirEntry[] {
+  return output
+    .split("\n")
+    .map((line) => line.replace(/\r$/, ""))
+    .filter((line) => line.length > 0 && line !== "./" && line !== "../")
+    .map((line) => {
+      const isDir = line.endsWith(DIR_MARK);
+      const name = isDir ? line.slice(0, -1) : line;
+      return { name, path: childPath(dir === "" ? ROOT : dir, name), isDir };
+    })
+    .sort((left, right) => Number(right.isDir) - Number(left.isDir) || left.name.localeCompare(right.name));
+}
+
 const SHELL_PROBE = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
 
 export function shellArgs(id: string): string[] {
@@ -198,6 +224,18 @@ export class Docker {
 
   async removeImage(id: string): Promise<void> {
     await this.output(["image", "rm", id]);
+  }
+
+  async listDir(id: string, dir: string): Promise<DirEntry[]> {
+    return parseListing(dir, await this.output(["exec", id, "ls", "-1Ap", "--", dir]));
+  }
+
+  async copyOut(id: string, path: string, destination: string): Promise<void> {
+    await this.output(["cp", `${id}:${path}`, destination]);
+  }
+
+  async copyIn(id: string, source: string, path: string): Promise<void> {
+    await this.output(["cp", source, `${id}:${path}`]);
   }
 
   async prune(): Promise<string> {
