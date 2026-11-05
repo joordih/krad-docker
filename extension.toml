@@ -11,6 +11,7 @@ activation = [
 
 [program]
 placement = "app"
+permissions = ["terminals"]
 runtime = "node"
 args = ["dist/main.js"]
 
