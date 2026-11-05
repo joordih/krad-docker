@@ -1,0 +1,111 @@
+id = "docker"
+name = "Docker"
+version = "0.1.0"
+description = "Containers, images and Compose projects from the Docker CLI."
+api = "1.0"
+activation = [
+  { workspace_contains = "docker-compose.yml" },
+  { workspace_contains = "compose.yaml" },
+  { workspace_contains = "Dockerfile" },
+]
+
+[program]
+placement = "app"
+runtime = "node"
+args = ["dist/main.js"]
+
+[[contributes.command]]
+id = "containers.refresh"
+title = "Docker: Refresh containers"
+icon = "refresh"
+
+[[contributes.command]]
+id = "compose.up"
+title = "Docker: Compose up"
+icon = "play"
+
+[[contributes.command]]
+id = "compose.down"
+title = "Docker: Compose down"
+icon = "stop"
+
+[[contributes.command]]
+id = "image.build"
+title = "Docker: Build image"
+icon = "layers"
+
+[[contributes.command]]
+id = "containers.prune"
+title = "Docker: Remove stopped containers"
+icon = "close"
+
+[[contributes.menu]]
+command = "image.build"
+target = "file"
+files = ["Dockerfile", "*.Dockerfile", "Dockerfile.*"]
+
+[[contributes.menu]]
+command = "compose.up"
+target = "file"
+files = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]
+
+[[contributes.menu]]
+command = "compose.down"
+target = "file"
+files = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]
+
+[[contributes.keybinding]]
+command = "containers.refresh"
+macos = "cmd-alt-shift-r"
+linux = "ctrl-alt-shift-r"
+windows = "ctrl-alt-shift-r"
+
+[[contributes.view]]
+id = "containers"
+title = "Containers"
+zone = "sidebar"
+icon = "layers"
+
+[[contributes.view]]
+id = "container"
+title = "Container"
+zone = "file_tab"
+icon = "layers"
+
+[[contributes.setting]]
+key = "docker-path"
+title = "Docker program"
+description = "The docker CLI to run, by name on PATH or as a full path."
+type = "text"
+default = "docker"
+
+[[contributes.setting]]
+key = "show-stopped"
+title = "Show stopped containers"
+type = "toggle"
+default = true
+
+[[contributes.setting]]
+key = "poll-seconds"
+title = "Refresh every (seconds)"
+type = "number"
+default = 5
+min = 1
+max = 600
+
+[[contributes.tool]]
+name = "list_containers"
+description = "List the Docker containers on this computer with their image, state and Compose project."
+effect = "read_only"
+input_schema = { type = "object", properties = { all = { type = "boolean", description = "Include stopped containers." } } }
+
+[[contributes.tool]]
+name = "restart_container"
+description = "Restart one Docker container by id or name."
+effect = "destructive"
+input_schema = { type = "object", properties = { container = { type = "string", description = "Container id or name." } }, required = ["container"] }
+
+[[contributes.host_kind]]
+id = "container"
+title = "Docker container"
+icon = "layers"

@@ -1,0 +1,18 @@
+#!/bin/sh
+here="$(cd "$(dirname "$0")/.." && pwd)"
+printf '%s\n' "$*" >> "${FAKE_DOCKER_CALLS:-/dev/null}"
+case "$1" in
+  ps)
+    for arg in "$@"; do
+      if [ "$arg" = "--all" ]; then cat "$here/ps-all.jsonl"; exit 0; fi
+    done
+    cat "$here/ps-running.jsonl" ;;
+  inspect)
+    if [ "$2" = "missing" ]; then echo "[]"; echo "Error: No such object: missing" >&2; exit 1; fi
+    cat "$here/inspect.json" ;;
+  start|stop|restart) echo "$2" ;;
+  rm) echo "$3" ;;
+  logs) echo "ready to accept connections"; echo "warning: low disk" >&2 ;;
+  container) echo "Total reclaimed space: 0B" ;;
+  *) echo "unknown command $1" >&2; exit 1 ;;
+esac
